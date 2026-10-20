@@ -1,0 +1,10 @@
+servo/
+hvigor-env/
+node_modules/
+*.hap
+*.app
+.DS_Store
+env.sh
+release/*.hap
+build/
+.idea/

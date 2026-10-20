@@ -1,0 +1,32 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', 'release/**', '**.md']
+
+jobs:
+  ohos-build:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.97.1
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup target add aarch64-unknown-linux-ohos --toolchain 1.97.1
+
+      - name: Install cargo-ohos
+        run: cargo install cargo-ohos --locked
+
+      - name: Fetch OpenHarmony SDK
+        run: cargo ohos init sdk --version=6.0.0.1
+
+      - name: Build
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          export OHOS_SDK_NATIVE=$(cargo ohos sdk path 2>/dev/null || true)
+          ./scripts/build.sh
