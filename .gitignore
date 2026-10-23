@@ -8,3 +8,4 @@ env.sh
 release/*.hap
 build/
 .idea/
+refs/
