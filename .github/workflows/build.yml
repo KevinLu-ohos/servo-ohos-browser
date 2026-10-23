@@ -19,6 +19,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/Library/Caches/cargo-ohos
+            ~/.cache/cargo-ohos
             servo/target
           key: servo-ohos-${{ hashFiles('patches/*.patch') }}
           restore-keys: servo-ohos-
@@ -37,6 +39,9 @@ jobs:
         run: cargo install cargo-ohos --locked
 
       - name: Fetch OpenHarmony SDK
+        env:
+          # 不带 token 时 GitHub API 会 403 限流，导致 SDK 下载失败
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo ohos init sdk --version=6.0.0.1 2>&1 | tail -5
 
       # 打包 HAP 需要 hvigor；本地由 DevEco 提供，CI 上从 OHOS npm 源安装
@@ -58,8 +63,14 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
           if [ -z "${OHOS_SDK_NATIVE:-}" ]; then
-            SDK=$(find "$HOME/.cache/cargo-ohos" -maxdepth 6 -type d -name native 2>/dev/null | head -1)
-            echo "detected SDK: $SDK"
+            SDK=$(find "$HOME/Library/Caches/cargo-ohos" "$HOME/.cache/cargo-ohos" \
+                    -maxdepth 8 -type d -path "*/native" 2>/dev/null | head -1)
+            echo "detected SDK: ${SDK:-<none>}"
+            if [ -z "$SDK" ]; then
+              echo "::error::OpenHarmony native SDK not found; 'cargo ohos init sdk' did not produce it"
+              exit 1
+            fi
             echo "OHOS_SDK_NATIVE=$SDK" >> "$GITHUB_ENV"
+            echo "DEVECO_SDK_HOME=$(dirname "$SDK")" >> "$GITHUB_ENV"
           fi
           ./scripts/build.sh
