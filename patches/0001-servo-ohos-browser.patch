@@ -135,7 +135,7 @@ index 29fd9e238..13a232e46 100644
 -mod ohos;
 +pub(crate) mod ohos;
 diff --git a/ports/servoshell/egl/ohos/mod.rs b/ports/servoshell/egl/ohos/mod.rs
-index 88d20684e..6b952e514 100644
+index 88d20684e..8971b6f89 100644
 --- a/ports/servoshell/egl/ohos/mod.rs
 +++ b/ports/servoshell/egl/ohos/mod.rs
 @@ -64,7 +64,7 @@ use std::ptr::NonNull;
@@ -849,7 +849,7 @@ index 88d20684e..6b952e514 100644
      Ok(())
  }
  
-@@ -971,17 +1489,161 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
+@@ -971,17 +1489,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
  #[napi(js_name = "loadURL")]
  pub fn load_url(url: String) {
      debug!("load url");
@@ -972,6 +972,22 @@ index 88d20684e..6b952e514 100644
 +    }
 +}
 +
++/// 退格：删除光标前 count 个字符。
++#[napi(js_name = "deleteBackward")]
++pub fn delete_backward(count: u32) {
++    if let Err(e) = call(ServoAction::ImeDeleteBackward(count as usize)) {
++        error!("delete_backward failed: {e:?}");
++    }
++}
++
++/// 回车：把 Enter 交给当前聚焦的可编辑元素。
++#[napi(js_name = "sendEnter")]
++pub fn send_enter() {
++    if let Err(e) = call(ServoAction::ImeSendEnter) {
++        error!("send_enter failed: {e:?}");
++    }
++}
++
 +#[napi(js_name = "evalJs")]
 +pub fn eval_js(script: String) {
 +    debug!("eval_js called ({} bytes)", script.len());
@@ -1014,7 +1030,7 @@ index 88d20684e..6b952e514 100644
  }
  
  #[napi(js_name = "registerURLcallback")]
-@@ -992,20 +1654,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
+@@ -992,20 +1670,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
          .max_queue_size::<UPDATE_URL_QUEUE_SIZE>()
          .build()?;
  
@@ -1039,7 +1055,7 @@ index 88d20684e..6b952e514 100644
  }
  
  #[napi]
-@@ -1014,16 +1672,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
+@@ -1014,16 +1688,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
      let tsfn_builder = callback.build_threadsafe_function();
      let function = tsfn_builder.max_queue_size::<PROMPT_QUEUE_SIZE>().build()?;
  
@@ -1070,7 +1086,7 @@ index 88d20684e..6b952e514 100644
      });
      Ok(())
  }
-@@ -1031,12 +1699,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
+@@ -1031,12 +1715,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
  #[napi]
  fn focus_webview(index: u32, arkts_ids: Vec<u32>) {
      debug!("Focusing webview {index} from napi");
@@ -1089,7 +1105,7 @@ index 88d20684e..6b952e514 100644
  }
  
  #[napi]
-@@ -1193,7 +1865,7 @@ impl HostTrait for HostCallbacks {
+@@ -1193,7 +1881,7 @@ impl HostTrait for HostCallbacks {
              }
          }
  
@@ -1098,7 +1114,7 @@ index 88d20684e..6b952e514 100644
              Some(prompt_fn) => {
                  let status = prompt_fn.call(message, ThreadsafeFunctionCallMode::NonBlocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1221,15 +1893,41 @@ impl HostTrait for HostCallbacks {
+@@ -1221,15 +1909,41 @@ impl HostTrait for HostCallbacks {
                  load_status
              ));
          }
@@ -1142,7 +1158,7 @@ index 88d20684e..6b952e514 100644
              Some(update_url_fn) => {
                  let status = update_url_fn.call(url, ThreadsafeFunctionCallMode::Blocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1240,10 +1938,15 @@ impl HostTrait for HostCallbacks {
+@@ -1240,10 +1954,15 @@ impl HostTrait for HostCallbacks {
          }
      }
  
@@ -1222,7 +1238,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..c7d13ac55 100644
+index 7dbcbce68..da49d2794 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1233,8 +1249,8 @@ index 7dbcbce68..c7d13ac55 100644
 -    "versionCode": 1000000,
 -    "versionName": "1.0.0",
 +    "vendor": "servo",
-+    "versionCode": 9000017,
-+    "versionName": "0.9.17",
++    "versionCode": 10000000,
++    "versionName": "0.10.0",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1265,10 +1281,10 @@ index 2a62de538..bbbdceff5 100644
        }
      ],
 diff --git a/support/openharmony/entry/src/main/cpp/types/libentry/index.d.ts b/support/openharmony/entry/src/main/cpp/types/libentry/index.d.ts
-index 9cedebd40..a2c3bac90 100644
+index 9cedebd40..154e33563 100644
 --- a/support/openharmony/entry/src/main/cpp/types/libentry/index.d.ts
 +++ b/support/openharmony/entry/src/main/cpp/types/libentry/index.d.ts
-@@ -7,9 +7,25 @@ export interface InitOpts {
+@@ -7,9 +7,27 @@ export interface InitOpts {
  export const loadURL: (url: string) => void;
  export const goBack: () => void;
  export const goForward: () => void;
@@ -1278,6 +1294,8 @@ index 9cedebd40..a2c3bac90 100644
 +export const registerDownloadSink: (callback: (url: string) => void) => void;
 +export const evalJsResult: (script: string, callback: (value: string) => void) => void;
 +export const insertText: (text: string) => void;
++export const deleteBackward: (count: number) => void;
++export const sendEnter: () => void;
 +export const evalJs: (script: string) => void;
 +export const registerCursorCallback: (callback: (id: number) => void) => void;
  export const registerURLcallback: (callback: (url: string) => void) => void;
@@ -1578,10 +1596,10 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..a8994a3ed 100644
+index 5086a5c7e..82e9112b2 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
-@@ -1,154 +1,3763 @@
+@@ -1,154 +1,3820 @@
  import { BusinessError } from '@ohos.base';
 +import hilog from '@ohos.hilog';
 +import curves from '@ohos.curves';
@@ -1605,7 +1623,7 @@ index 5086a5c7e..a8994a3ed 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.9.17';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.0';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
@@ -1834,6 +1852,8 @@ index 5086a5c7e..a8994a3ed 100644
 +  @State progressVisible: boolean = false;
 +  @State downloading: boolean = false;
 +  @State omniboxFocused: boolean = false;
++  @State keyCatcher: string = '';
++  private typingGuard: boolean = false;
 +  @State onNewTab: boolean = true;
 +  @State newTabQuery: string = '';
 +  @State homePageInput: string = '';
@@ -2453,6 +2473,35 @@ index 5086a5c7e..a8994a3ed 100644
 +    const index: number = this.activeIndex();
 +    this.safe('focusWebview', () => { servoshell.focusWebview(index, this.tabIds()); });
 +    this.safe('loadURL', () => { servoshell.loadURL(url); });
++  }
++
++  /** 把焦点交给隐藏的键盘捕获框（网页区域的物理键盘输入靠它）。 */
++  private focusKeyCatcher(): void {
++    if (this.onNewTab || this.omniboxFocused) {
++      return;
++    }
++    try {
++      this.getUIContext().getFocusController().requestFocus('keycatcher');
++    } catch (error) {
++      hilog.warn(DOMAIN, 'ServoShell', 'focus keycatcher failed');
++    }
++  }
++
++  /** TextInput 收到的文本 → 逐字符转发给内核，然后清空自己。 */
++  private handleTypedText(value: string): void {
++    if (this.typingGuard || this.onNewTab) {
++      return;
++    }
++    if (value.length === 0) {
++      return;
++    }
++    for (let i = 0; i < value.length; i++) {
++      const ch: string = value.charAt(i);
++      this.safe('insertText', () => { servoshell.insertText(ch); });
++    }
++    this.typingGuard = true;
++    this.keyCatcher = '';
++    this.typingGuard = false;
 +  }
 +
 +  private originOf(u: string): string {
@@ -4268,13 +4317,13 @@ index 5086a5c7e..a8994a3ed 100644
 +    .border({
 +      width: 1,
 +      color: this.themeMode === kind ? ACCENT : this.line()
-     })
--    const promptAction = this.getUIContext().getPromptAction();
--    servoshell.registerPromptToastCallback((msg: string) => {
++    })
 +    .stateStyles({
 +      pressed: { .scale({ x: 0.95, y: 0.95 }) },
 +      normal: { .scale({ x: 1, y: 1 }) }
-+    })
+     })
+-    const promptAction = this.getUIContext().getPromptAction();
+-    servoshell.registerPromptToastCallback((msg: string) => {
 +    .animation({ curve: bounce(), duration: 220 })
 +    .hoverEffect(HoverEffect.Highlight)
 +    .onClick(() => {
@@ -5199,16 +5248,16 @@ index 5086a5c7e..a8994a3ed 100644
 +    .layoutWeight(1)
 +    .justifyContent(FlexAlign.Start)
 +  }
++
++  @Builder
++  extensionsBody() {
++    Column() {
++      this.panelBar('扩展程序', '用户脚本：网址匹配后在页面加载完成时注入')
  
 -      List({ space: 10 }) {
 -        ForEach(this.tablist, (item: number, index: number) => {
 -          ListItem() {
 -            this.tabBuilder(item, index)
-+  @Builder
-+  extensionsBody() {
-+    Column() {
-+      this.panelBar('扩展程序', '用户脚本：网址匹配后在页面加载完成时注入')
-+
 +      Scroll() {
 +        Column({ space: 14 }) {
 +          Column({ space: 10 }) {
@@ -5351,8 +5400,10 @@ index 5086a5c7e..a8994a3ed 100644
 +        } else {
 +          this.extensionsBody()
 +        }
-+      }
-+      .width('100%')
+       }
+-      .flexGrow(1)
+       .width('100%')
+-      .backgroundColor('#e1e1e1')
 +      .height('100%')
 +      .backgroundColor(this.panelTint())
 +      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
@@ -5394,8 +5445,10 @@ index 5086a5c7e..a8994a3ed 100644
 +              .focusable(true)
 +              .focusOnTouch(true)
 +              .onHover((isHover: boolean) => {
-+                // 离开网页区域时把光标恢复成箭头，避免手型残留到工具栏
-+                if (!isHover) {
++                if (isHover) {
++                  this.focusKeyCatcher();
++                } else {
++                  // 离开网页区域时把光标恢复成箭头，避免手型残留到工具栏
 +                  this.applyCursor(0);
 +                }
 +              })
@@ -5404,13 +5457,35 @@ index 5086a5c7e..a8994a3ed 100644
 +          if (this.onNewTab) {
 +            this.newTabView()
 +          }
++
++          // 1x1 透明输入框：承接物理键盘输入并转发给内核（PC 上没有软键盘）
++          TextInput({ text: $$this.keyCatcher })
++            .width(1)
++            .height(1)
++            .opacity(0.01)
++            .position({ x: 0, y: 0 })
++            .id('keycatcher')
++            .enableKeyboardOnFocus(true)
++            .caretColor(Color.Transparent)
++            .onChange((value: string) => {
++              this.handleTypedText(value);
++            })
++            .onKeyEvent((event: KeyEvent) => {
++              if (event.type !== KeyType.Down) {
++                return;
++              }
++              // 2055 = Backspace，2054 = Enter
++              if (event.keyCode === 2055) {
++                this.safe('deleteBackward', () => { servoshell.deleteBackward(1); });
++              } else if (event.keyCode === 2054) {
++                this.safe('sendEnter', () => { servoshell.sendEnter(); });
++              }
++            })
 +        }
 +        .flexGrow(1)
 +        .width('100%')
-       }
--      .flexGrow(1)
-       .width('100%')
--      .backgroundColor('#e1e1e1')
++      }
++      .width('100%')
 +      .height('100%')
 +
 +      if (this.view === 'settings') {
