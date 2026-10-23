@@ -165,7 +165,7 @@ index 29fd9e238..13a232e46 100644
 -mod ohos;
 +pub(crate) mod ohos;
 diff --git a/ports/servoshell/egl/ohos/mod.rs b/ports/servoshell/egl/ohos/mod.rs
-index 88d20684e..889b8489d 100644
+index 88d20684e..c4e432745 100644
 --- a/ports/servoshell/egl/ohos/mod.rs
 +++ b/ports/servoshell/egl/ohos/mod.rs
 @@ -64,7 +64,8 @@ use std::ptr::NonNull;
@@ -226,7 +226,7 @@ index 88d20684e..889b8489d 100644
  
  use super::app::{App, AppInitOptions};
  use super::host_trait::HostTrait;
-@@ -115,22 +148,65 @@ const UPDATE_URL_QUEUE_SIZE: usize = 1;
+@@ -115,22 +148,79 @@ const UPDATE_URL_QUEUE_SIZE: usize = 1;
  /// embedder thread. Specifying 4 as a max queue size seems reasonable for now, and can
  /// be adjusted later.
  const PROMPT_QUEUE_SIZE: usize = 4;
@@ -272,6 +272,20 @@ index 88d20684e..889b8489d 100644
 +/// Browser keyboard shortcuts, forwarded to the ArkTS chrome as small integer ids.
 +static SHORTCUT_CB: LazyLock<Mutex<Option<ThreadsafeFunction<u32, (), u32, napi_ohos::Status, false, false, UPDATE_URL_QUEUE_SIZE>>>> = LazyLock::new(|| Mutex::new(None));
 +
++/// 是否已经上报过 IME 接入状态（只报一次，避免刷屏）。
++static IME_REPORTED: AtomicBool = AtomicBool::new(false);
++/// 是否已经收到过鼠标事件（收到即认为是鼠标设备，忽略后续触摸事件）。
++static MOUSE_SEEN: AtomicBool = AtomicBool::new(false);
++
++fn report_ime_once(message: String) {
++    if IME_REPORTED.swap(true, Ordering::Relaxed) {
++        return;
++    }
++    if let Some(callback) = PROMPT_TOAST.lock().unwrap().as_ref() {
++        let _ = callback.call(message, ThreadsafeFunctionCallMode::NonBlocking);
++    }
++}
++
 +/// 同一次物理点击可能同时以 touch 与 mouse 两种形式到达 XComponent。
 +/// servo 会把它算成连续两次点击（click count 2 = 选中词，3 = 选中整行），
 +/// 表现为“点一下输入框就选中了灰色的提示文字”。这里在 150ms 窗口内去重。
@@ -304,7 +318,7 @@ index 88d20684e..889b8489d 100644
  
  /// set special mode for graphics operation, see [https://developer.huawei.com/consumer/en/doc/harmonyos-faqs/faqs-arkgraphics-2d-14]
  fn set_efficient_window_method(window: *mut c_void) {
-@@ -251,6 +327,13 @@ fn init_app(
+@@ -251,6 +341,13 @@ fn init_app(
          .collect::<Vec<&str>>();
      debug!("Servo commandline args: {:?}", args);
  
@@ -318,7 +332,7 @@ index 88d20684e..889b8489d 100644
      let config_dir = PathBuf::from(&native_values.cache_dir).join("servo");
      debug!("Configs are located at: {:?}", config_dir);
      let _ = crate::prefs::DEFAULT_CONFIG_DIR
-@@ -340,8 +423,11 @@ enum CallError {
+@@ -340,8 +437,11 @@ enum CallError {
  }
  
  fn call(action: ServoAction) -> Result<(), CallError> {
@@ -331,7 +345,7 @@ index 88d20684e..889b8489d 100644
          .ok_or(CallError::ChannelNotInitialized)?;
      tx.send(action).map_err(|_| CallError::ChannelDied)?;
      Ok(())
-@@ -370,6 +456,7 @@ pub(super) enum ServoAction {
+@@ -370,6 +470,7 @@ pub(super) enum ServoAction {
      LoadUrl(String),
      GoBack,
      GoForward,
@@ -339,7 +353,7 @@ index 88d20684e..889b8489d 100644
      TouchEvent {
          kind: TouchEventType,
          x: f32,
-@@ -377,6 +464,25 @@ pub(super) enum ServoAction {
+@@ -377,6 +478,25 @@ pub(super) enum ServoAction {
          pointer_id: i32,
      },
      KeyEvent(keyboard_types::KeyboardEvent),
@@ -365,7 +379,7 @@ index 88d20684e..889b8489d 100644
      InsertText(String),
      ImeDeleteForward(usize),
      ImeDeleteBackward(usize),
-@@ -399,6 +505,7 @@ impl std::fmt::Debug for ServoAction {
+@@ -399,6 +519,7 @@ impl std::fmt::Debug for ServoAction {
              Self::LoadUrl(arg0) => f.debug_tuple("LoadUrl").field(arg0).finish(),
              Self::GoBack => write!(f, "GoBack"),
              Self::GoForward => write!(f, "GoForward"),
@@ -373,7 +387,7 @@ index 88d20684e..889b8489d 100644
              Self::TouchEvent {
                  kind,
                  x,
-@@ -412,6 +519,26 @@ impl std::fmt::Debug for ServoAction {
+@@ -412,6 +533,26 @@ impl std::fmt::Debug for ServoAction {
                  .field("pointer_id", pointer_id)
                  .finish(),
              Self::KeyEvent(_) => f.debug_struct("KeyEvent").finish(),
@@ -400,7 +414,7 @@ index 88d20684e..889b8489d 100644
              Self::InsertText(arg0) => f.debug_tuple("InsertText").field(arg0).finish(),
              Self::ImeDeleteForward(arg0) => f.debug_tuple("ImeDeleteForward").field(arg0).finish(),
              Self::ImeDeleteBackward(arg0) => {
-@@ -451,6 +578,53 @@ impl ServoAction {
+@@ -451,6 +592,53 @@ impl ServoAction {
          }
      }
  
@@ -454,7 +468,7 @@ index 88d20684e..889b8489d 100644
      // todo: consider making this take `self`, so we don't need to needlessly clone.
      fn do_action(&self, servo: &Rc<App>) {
          use ServoAction::*;
-@@ -464,6 +638,7 @@ impl ServoAction {
+@@ -464,6 +652,7 @@ impl ServoAction {
              LoadUrl(url) => servo.load_uri(url.as_str()),
              GoBack => servo.go_back(),
              GoForward => servo.go_forward(),
@@ -462,7 +476,7 @@ index 88d20684e..889b8489d 100644
              TouchEvent {
                  kind,
                  x,
-@@ -471,7 +646,43 @@ impl ServoAction {
+@@ -471,7 +660,43 @@ impl ServoAction {
                  pointer_id,
              } => Self::dispatch_touch_event(servo, *kind, *x, *y, *pointer_id),
              KeyEvent(k) => servo.key_event(k.clone()),
@@ -507,7 +521,7 @@ index 88d20684e..889b8489d 100644
              ImeDeleteForward(len) => {
                  for _ in 0..*len {
                      servo.key_down(Key::Named(NamedKey::Delete));
-@@ -506,7 +717,7 @@ impl ServoAction {
+@@ -506,7 +731,7 @@ impl ServoAction {
                      servo.state.set_window_has_focus(window.clone(), true);
                      if let Some(webview) = window.active_webview() {
                          if let Some(url) = webview.url() {
@@ -516,7 +530,7 @@ index 88d20684e..889b8489d 100644
                                  f.call(url.to_string(), ThreadsafeFunctionCallMode::Blocking)
                              });
                          }
-@@ -593,24 +804,29 @@ unsafe extern "C" fn on_vsync_cb(
+@@ -593,24 +818,29 @@ unsafe extern "C" fn on_vsync_cb(
      }
  }
  
@@ -554,10 +568,15 @@ index 88d20684e..889b8489d 100644
      info!("Sender disconnected - Terminating main surface thread");
  }
  
-@@ -745,6 +961,10 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
+@@ -745,6 +975,15 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
              TouchEventType::Unknown
          },
      };
++    // 鼠标设备上，触摸事件与鼠标事件是同一个物理动作的两种表示，
++    // 全部忽略触摸可彻底避免 servo 把它算成多击（多击会选中文字）。
++    if MOUSE_SEEN.load(Ordering::Relaxed) {
++        return;
++    }
 +    if matches!(kind, TouchEventType::Down | TouchEventType::Up) && !allow_pointer_press(1) {
 +        debug!("skip duplicated touch press (mouse already delivered)");
 +        return;
@@ -565,7 +584,7 @@ index 88d20684e..889b8489d 100644
      if let Err(e) = call(ServoAction::TouchEvent {
          kind,
          x: touch_event.x,
-@@ -798,6 +1018,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+@@ -798,6 +1037,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
          scroll_lock,
      };
  
@@ -598,7 +617,7 @@ index 88d20684e..889b8489d 100644
      let converted = KEY_EVENT_CONVERTER
          .lock()
          .unwrap()
-@@ -811,8 +1057,284 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+@@ -811,8 +1076,285 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
      }
  }
  
@@ -841,6 +860,7 @@ index 88d20684e..889b8489d 100644
 +        return;
 +    }
 +    let mouse_event = unsafe { mouse_event.assume_init() };
++    MOUSE_SEEN.store(true, Ordering::Relaxed);
 +    let action_value = mouse_event.action.0;
 +    if (action_value == 1 || action_value == 2) && !allow_pointer_press(2) {
 +        debug!("skip duplicated mouse press (touch already delivered)");
@@ -885,7 +905,7 @@ index 88d20684e..889b8489d 100644
      builder.set_domain(hilog::LogDomain::new(0xE0C3));
      let filters = [
          "fonts",
-@@ -938,6 +1460,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
+@@ -938,6 +1480,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
      } else {
          debug!("Registered key event callbacks successfully");
      }
@@ -922,7 +942,7 @@ index 88d20684e..889b8489d 100644
      Ok(())
  }
  
-@@ -971,17 +1523,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
+@@ -971,17 +1543,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
  #[napi(js_name = "loadURL")]
  pub fn load_url(url: String) {
      debug!("load url");
@@ -1103,7 +1123,7 @@ index 88d20684e..889b8489d 100644
  }
  
  #[napi(js_name = "registerURLcallback")]
-@@ -992,20 +1704,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
+@@ -992,20 +1724,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
          .max_queue_size::<UPDATE_URL_QUEUE_SIZE>()
          .build()?;
  
@@ -1128,7 +1148,7 @@ index 88d20684e..889b8489d 100644
  }
  
  #[napi]
-@@ -1014,16 +1722,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
+@@ -1014,16 +1742,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
      let tsfn_builder = callback.build_threadsafe_function();
      let function = tsfn_builder.max_queue_size::<PROMPT_QUEUE_SIZE>().build()?;
  
@@ -1159,7 +1179,7 @@ index 88d20684e..889b8489d 100644
      });
      Ok(())
  }
-@@ -1031,12 +1749,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
+@@ -1031,12 +1769,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
  #[napi]
  fn focus_webview(index: u32, arkts_ids: Vec<u32>) {
      debug!("Focusing webview {index} from napi");
@@ -1178,7 +1198,7 @@ index 88d20684e..889b8489d 100644
  }
  
  #[napi]
-@@ -1193,7 +1915,7 @@ impl HostTrait for HostCallbacks {
+@@ -1193,7 +1935,7 @@ impl HostTrait for HostCallbacks {
              }
          }
  
@@ -1187,7 +1207,7 @@ index 88d20684e..889b8489d 100644
              Some(prompt_fn) => {
                  let status = prompt_fn.call(message, ThreadsafeFunctionCallMode::NonBlocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1221,15 +1943,41 @@ impl HostTrait for HostCallbacks {
+@@ -1221,15 +1963,41 @@ impl HostTrait for HostCallbacks {
                  load_status
              ));
          }
@@ -1231,7 +1251,7 @@ index 88d20684e..889b8489d 100644
              Some(update_url_fn) => {
                  let status = update_url_fn.call(url, ThreadsafeFunctionCallMode::Blocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1240,10 +1988,15 @@ impl HostTrait for HostCallbacks {
+@@ -1240,10 +2008,15 @@ impl HostTrait for HostCallbacks {
          }
      }
  
@@ -1249,14 +1269,17 @@ index 88d20684e..889b8489d 100644
              terminate_fn.call((), ThreadsafeFunctionCallMode::Blocking);
          } else {
              error!("Could not shut down despite servo shutting down");
-@@ -1256,26 +2009,11 @@ impl HostTrait for HostCallbacks {
+@@ -1256,24 +2029,35 @@ impl HostTrait for HostCallbacks {
      /// and shows the soft keyboard with default settings.
      /// When the keyboard cannot be shown (because the application is not in focus)
      /// we just continue and try next time.
--    fn on_ime_show(&self, control: InputMethodControl) {
++    /// 内核原生输入法：通过 OH_InputMethodController_Attach 把当前窗口注册为
++    /// 输入法客户端，物理键盘与中文上屏都由系统输入法直接送到 servo。
+     fn on_ime_show(&self, control: InputMethodControl) {
 -        debug!("IME show!");
--        let mut ime_proxy = self.ime_proxy.borrow_mut();
--        if ime_proxy.is_none() {
++        debug!("IME show requested");
+         let mut ime_proxy = self.ime_proxy.borrow_mut();
+         if ime_proxy.is_none() {
 -            *ime_proxy =
 -                match self.try_create_ime_proxy(control.input_method_type(), control.multiline()) {
 -                    Err(ref e) => {
@@ -1265,22 +1288,33 @@ index 88d20684e..889b8489d 100644
 -                    },
 -                    Ok(proxy) => Some(proxy),
 -                };
--        }
--
--        if let Some(ref ime) = *ime_proxy {
--            match ime.show_keyboard() {
--                Ok(()) => debug!("IME show keyboard - success"),
--                Err(_e) => error!("IME show keyboard error"),
--            }
--        }
-+    fn on_ime_show(&self, _control: InputMethodControl) {
-+        // 物理键盘与输入法由 ArkTS 侧隐藏输入框统一接管（见 Index.ets 的 keycatcher）。
-+        // 这里不再 attach servo 自己的输入客户端，避免和 ArkUI 争抢输入法绑定，
-+        // 否则上屏文本会被两边都丢弃（PC 上没有软键盘可兜底）。
-+        debug!("IME show requested - handled by ArkTS key catcher");
-     }
++            match self.try_create_ime_proxy(control.input_method_type(), control.multiline()) {
++                Err(ref e) => {
++                    error!("Could not attach IME because of {e:?}");
++                    report_ime_once(format!("输入法接入失败：{:?}", e));
++                    None
++                },
++                Ok(proxy) => {
++                    info!("IME client attached");
++                    report_ime_once("输入法已接入".to_string());
++                    Some(proxy)
++                },
++            }
++            .map(|proxy| *ime_proxy = Some(proxy))
++            .unwrap_or(());
+         }
  
-     fn on_ime_hide(&self) {
+         if let Some(ref ime) = *ime_proxy {
+             match ime.show_keyboard() {
+                 Ok(()) => debug!("IME show keyboard - success"),
+-                Err(_e) => error!("IME show keyboard error"),
++                Err(e) => {
++                    warn!("IME show keyboard failed: {e:?}");
++                    report_ime_once(format!("软键盘显示失败：{e:?}"));
++                },
+             }
+         }
+     }
 diff --git a/ports/servoshell/running_app_state.rs b/ports/servoshell/running_app_state.rs
 index 0b266879c..7a5c1d186 100644
 --- a/ports/servoshell/running_app_state.rs
@@ -1343,7 +1377,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..774030dd2 100644
+index 7dbcbce68..a6adf62de 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1355,8 +1389,8 @@ index 7dbcbce68..774030dd2 100644
 -    "versionName": "1.0.0",
 +    "bundleName": "com.kevin.servoohos.browser",
 +    "vendor": "servo",
-+    "versionCode": 10000004,
-+    "versionName": "0.10.4",
++    "versionCode": 10000005,
++    "versionName": "0.10.5",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1702,10 +1736,10 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..5bf8c9aeb 100644
+index 5086a5c7e..872de3c6f 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
-@@ -1,154 +1,3821 @@
+@@ -1,154 +1,3754 @@
  import { BusinessError } from '@ohos.base';
 +import hilog from '@ohos.hilog';
 +import curves from '@ohos.curves';
@@ -1729,7 +1763,7 @@ index 5086a5c7e..5bf8c9aeb 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.4';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.5';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
@@ -1959,7 +1993,6 @@ index 5086a5c7e..5bf8c9aeb 100644
 +  @State downloading: boolean = false;
 +  @State omniboxFocused: boolean = false;
 +  @State keyCatcher: string = '';
-+  private lastCatcherValue: string = '';
 +  @State onNewTab: boolean = true;
 +  @State newTabQuery: string = '';
 +  @State homePageInput: string = '';
@@ -2579,48 +2612,6 @@ index 5086a5c7e..5bf8c9aeb 100644
 +    const index: number = this.activeIndex();
 +    this.safe('focusWebview', () => { servoshell.focusWebview(index, this.tabIds()); });
 +    this.safe('loadURL', () => { servoshell.loadURL(url); });
-+  }
-+
-+  /** 把焦点交给隐藏的键盘捕获框（网页区域的物理键盘输入靠它）。 */
-+  private focusKeyCatcher(): void {
-+    if (this.onNewTab || this.omniboxFocused) {
-+      return;
-+    }
-+    try {
-+      this.getUIContext().getFocusController().requestFocus('keycatcher');
-+    } catch (error) {
-+      hilog.warn(DOMAIN, 'ServoShell', 'focus keycatcher failed');
-+    }
-+  }
-+
-+  /**
-+   * TextInput 收到的文本 → 只把“新增部分”逐字转发给内核。
-+   * 不能依赖清空输入框（ArkUI 上不可靠，会累积成 "ee" 这种重复）。
-+   */
-+  private handleTypedText(value: string): void {
-+    if (this.onNewTab) {
-+      return;
-+    }
-+    const previous: string = this.lastCatcherValue;
-+    this.lastCatcherValue = value;
-+    if (value.length === 0) {
-+      return;
-+    }
-+    if (value.length <= previous.length) {
-+      // 变短：退格由 onKeyEvent 的 Backspace 处理
-+      return;
-+    }
-+    const added: string = value.startsWith(previous) ?
-+      value.substring(previous.length) : value.substring(previous.length);
-+    for (let i = 0; i < added.length; i++) {
-+      const ch: string = added.charAt(i);
-+      this.safe('insertText', () => { servoshell.insertText(ch); });
-+    }
-+    // 缓冲变长后主动回收，避免无限增长
-+    if (value.length > 32) {
-+      this.keyCatcher = '';
-+      this.lastCatcherValue = '';
-+    }
 +  }
 +
 +  private originOf(u: string): string {
@@ -5559,12 +5550,11 @@ index 5086a5c7e..5bf8c9aeb 100644
 +              .height('100%')
 +              .visibility(this.activeId === tab.id && !this.onNewTab ?
 +                Visibility.Visible : Visibility.Hidden)
-+              .focusable(false)
++              .focusable(true)
++              .focusOnTouch(true)
 +              .onHover((isHover: boolean) => {
-+                if (isHover) {
-+                  this.focusKeyCatcher();
-+                } else {
-+                  // 离开网页区域时把光标恢复成箭头，避免手型残留到工具栏
++                // 离开网页区域时把光标恢复成箭头，避免手型残留到工具栏
++                if (!isHover) {
 +                  this.applyCursor(0);
 +                }
 +              })
@@ -5574,29 +5564,6 @@ index 5086a5c7e..5bf8c9aeb 100644
 +            this.newTabView()
 +          }
 +
-+          // 1x1 透明输入框：承接物理键盘输入并转发给内核（PC 上没有软键盘）
-+          TextInput({ text: $$this.keyCatcher })
-+            .width(1)
-+            .height(1)
-+            .opacity(0.01)
-+            .position({ x: 0, y: 0 })
-+            .id('keycatcher')
-+            .enableKeyboardOnFocus(true)
-+            .caretColor(Color.Transparent)
-+            .onChange((value: string) => {
-+              this.handleTypedText(value);
-+            })
-+            .onKeyEvent((event: KeyEvent) => {
-+              if (event.type !== KeyType.Down) {
-+                return;
-+              }
-+              // 2055 = Backspace，2054 = Enter
-+              if (event.keyCode === 2055) {
-+                this.safe('deleteBackward', () => { servoshell.deleteBackward(1); });
-+              } else if (event.keyCode === 2054) {
-+                this.safe('sendEnter', () => { servoshell.sendEnter(); });
-+              }
-+            })
 +        }
 +        .flexGrow(1)
 +        .width('100%')
