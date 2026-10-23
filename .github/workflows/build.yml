@@ -39,6 +39,20 @@ jobs:
       - name: Fetch OpenHarmony SDK
         run: cargo ohos init sdk --version=6.0.0.1 2>&1 | tail -5
 
+      # 打包 HAP 需要 hvigor；本地由 DevEco 提供，CI 上从 OHOS npm 源安装
+      - name: Install hvigor
+        run: |
+          mkdir -p "$RUNNER_TEMP/hvigor-env"
+          cd "$RUNNER_TEMP/hvigor-env"
+          npm config set @ohos:registry https://repo.harmonyos.com/npm/
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @ohos/hvigor @ohos/hvigor-ohos-plugin
+          test -f node_modules/@ohos/hvigor/bin/hvigor.js
+          echo "HVIGOR_PATH=$PWD" >> "$GITHUB_ENV"
+          if [ -n "${JAVA_HOME_17_arm64:-}" ]; then
+            echo "JAVA_HOME=$JAVA_HOME_17_arm64" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
