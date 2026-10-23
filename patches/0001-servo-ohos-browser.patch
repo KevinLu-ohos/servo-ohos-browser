@@ -1343,19 +1343,20 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..db43ec78b 100644
+index 7dbcbce68..774030dd2 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
  {
    "app": {
-     "bundleName": "org.servo.servo",
+-    "bundleName": "org.servo.servo",
 -    "vendor": "example",
 -    "versionCode": 1000000,
 -    "versionName": "1.0.0",
++    "bundleName": "com.kevin.servoohos.browser",
 +    "vendor": "servo",
-+    "versionCode": 10000003,
-+    "versionName": "0.10.3",
++    "versionCode": 10000004,
++    "versionName": "0.10.4",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1701,7 +1702,7 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..e5df6d3c3 100644
+index 5086a5c7e..5bf8c9aeb 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
 @@ -1,154 +1,3821 @@
@@ -1728,7 +1729,7 @@ index 5086a5c7e..e5df6d3c3 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.3';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.4';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
