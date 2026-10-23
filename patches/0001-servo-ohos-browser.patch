@@ -87,7 +87,7 @@ index bdb007d72..a7ba6fef7 100644
  hilog = { workspace = true }
  # force inprocess until we add multi-process support for ohos
 diff --git a/ports/servoshell/egl/app.rs b/ports/servoshell/egl/app.rs
-index 3714bb40e..2e556c8d5 100644
+index 3714bb40e..f9af99a0f 100644
 --- a/ports/servoshell/egl/app.rs
 +++ b/ports/servoshell/egl/app.rs
 @@ -10,7 +10,7 @@ use keyboard_types::{CompositionEvent, CompositionState, Key, KeyState, NamedKey
@@ -124,6 +124,36 @@ index 3714bb40e..2e556c8d5 100644
      /// Go back in history.
      pub fn go_back(&self) {
          self.window()
+@@ -624,6 +642,29 @@ impl App {
+         }
+     }
+ 
++    /// 提交一段已确认的文本（IME 上屏）。
++    ///
++    /// 与 `ime_insert_text` 的区别：这里发 Update → End 两段 composition，
++    /// 页面会依次收到 `compositionupdate` / `compositionend` / `input`，
++    /// 在线编辑器（Google Docs 等）依赖这些事件。
++    pub fn ime_commit_text(&self, text: String) {
++        if text.is_empty() {
++            return;
++        }
++        let Some(webview) = self.active_or_newest_webview() else {
++            return;
++        };
++        webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(CompositionEvent {
++            state: CompositionState::Update,
++            data: text.clone(),
++        })));
++        webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(CompositionEvent {
++            state: CompositionState::End,
++            data: text,
++        })));
++        self.spin_event_loop();
++    }
++
+     pub fn ime_insert_text(&self, text: String) {
+         // In OHOS, we get empty text after the intended text.
+         if text.is_empty() {
 diff --git a/ports/servoshell/egl/mod.rs b/ports/servoshell/egl/mod.rs
 index 29fd9e238..13a232e46 100644
 --- a/ports/servoshell/egl/mod.rs
@@ -135,7 +165,7 @@ index 29fd9e238..13a232e46 100644
 -mod ohos;
 +pub(crate) mod ohos;
 diff --git a/ports/servoshell/egl/ohos/mod.rs b/ports/servoshell/egl/ohos/mod.rs
-index 88d20684e..8971b6f89 100644
+index 88d20684e..d4f90578a 100644
 --- a/ports/servoshell/egl/ohos/mod.rs
 +++ b/ports/servoshell/egl/ohos/mod.rs
 @@ -64,7 +64,7 @@ use std::ptr::NonNull;
@@ -407,10 +437,11 @@ index 88d20684e..8971b6f89 100644
              TouchEvent {
                  kind,
                  x,
-@@ -471,6 +621,42 @@ impl ServoAction {
+@@ -471,7 +621,43 @@ impl ServoAction {
                  pointer_id,
              } => Self::dispatch_touch_event(servo, *kind, *x, *y, *pointer_id),
              KeyEvent(k) => servo.key_event(k.clone()),
+-            InsertText(text) => servo.ime_insert_text(text.clone()),
 +            MouseEvent {
 +                action,
 +                button,
@@ -447,9 +478,10 @@ index 88d20684e..8971b6f89 100644
 +                let (x, y) = *LAST_POINTER.lock().unwrap();
 +                servo.scroll(*dx, *dy, x, y);
 +            },
-             InsertText(text) => servo.ime_insert_text(text.clone()),
++            InsertText(text) => servo.ime_commit_text(text.clone()),
              ImeDeleteForward(len) => {
                  for _ in 0..*len {
+                     servo.key_down(Key::Named(NamedKey::Delete));
 @@ -506,7 +692,7 @@ impl ServoAction {
                      servo.state.set_window_has_focus(window.clone(), true);
                      if let Some(webview) = window.active_webview() {
@@ -1176,6 +1208,38 @@ index 88d20684e..8971b6f89 100644
              terminate_fn.call((), ThreadsafeFunctionCallMode::Blocking);
          } else {
              error!("Could not shut down despite servo shutting down");
+@@ -1256,26 +1975,11 @@ impl HostTrait for HostCallbacks {
+     /// and shows the soft keyboard with default settings.
+     /// When the keyboard cannot be shown (because the application is not in focus)
+     /// we just continue and try next time.
+-    fn on_ime_show(&self, control: InputMethodControl) {
+-        debug!("IME show!");
+-        let mut ime_proxy = self.ime_proxy.borrow_mut();
+-        if ime_proxy.is_none() {
+-            *ime_proxy =
+-                match self.try_create_ime_proxy(control.input_method_type(), control.multiline()) {
+-                    Err(ref e) => {
+-                        error!("Could not show keyboard because of {e:?}");
+-                        None
+-                    },
+-                    Ok(proxy) => Some(proxy),
+-                };
+-        }
+-
+-        if let Some(ref ime) = *ime_proxy {
+-            match ime.show_keyboard() {
+-                Ok(()) => debug!("IME show keyboard - success"),
+-                Err(_e) => error!("IME show keyboard error"),
+-            }
+-        }
++    fn on_ime_show(&self, _control: InputMethodControl) {
++        // 物理键盘与输入法由 ArkTS 侧隐藏输入框统一接管（见 Index.ets 的 keycatcher）。
++        // 这里不再 attach servo 自己的输入客户端，避免和 ArkUI 争抢输入法绑定，
++        // 否则上屏文本会被两边都丢弃（PC 上没有软键盘可兜底）。
++        debug!("IME show requested - handled by ArkTS key catcher");
+     }
+ 
+     fn on_ime_hide(&self) {
 diff --git a/ports/servoshell/running_app_state.rs b/ports/servoshell/running_app_state.rs
 index 0b266879c..7a5c1d186 100644
 --- a/ports/servoshell/running_app_state.rs
@@ -1238,7 +1302,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..da49d2794 100644
+index 7dbcbce68..3b22d675d 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1249,8 +1313,8 @@ index 7dbcbce68..da49d2794 100644
 -    "versionCode": 1000000,
 -    "versionName": "1.0.0",
 +    "vendor": "servo",
-+    "versionCode": 10000000,
-+    "versionName": "0.10.0",
++    "versionCode": 10000001,
++    "versionName": "0.10.1",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1596,7 +1660,7 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..82e9112b2 100644
+index 5086a5c7e..483f268d3 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
 @@ -1,154 +1,3820 @@
@@ -1623,7 +1687,7 @@ index 5086a5c7e..82e9112b2 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.0';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.1';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
