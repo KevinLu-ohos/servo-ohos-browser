@@ -1343,7 +1343,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..31492e3b1 100644
+index 7dbcbce68..db43ec78b 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1354,8 +1354,8 @@ index 7dbcbce68..31492e3b1 100644
 -    "versionCode": 1000000,
 -    "versionName": "1.0.0",
 +    "vendor": "servo",
-+    "versionCode": 10000002,
-+    "versionName": "0.10.2",
++    "versionCode": 10000003,
++    "versionName": "0.10.3",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1701,10 +1701,10 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..55c37e245 100644
+index 5086a5c7e..e5df6d3c3 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
-@@ -1,154 +1,3820 @@
+@@ -1,154 +1,3821 @@
  import { BusinessError } from '@ohos.base';
 +import hilog from '@ohos.hilog';
 +import curves from '@ohos.curves';
@@ -1728,7 +1728,7 @@ index 5086a5c7e..55c37e245 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.2';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.3';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
@@ -1958,7 +1958,7 @@ index 5086a5c7e..55c37e245 100644
 +  @State downloading: boolean = false;
 +  @State omniboxFocused: boolean = false;
 +  @State keyCatcher: string = '';
-+  private typingGuard: boolean = false;
++  private lastCatcherValue: string = '';
 +  @State onNewTab: boolean = true;
 +  @State newTabQuery: string = '';
 +  @State homePageInput: string = '';
@@ -2592,21 +2592,34 @@ index 5086a5c7e..55c37e245 100644
 +    }
 +  }
 +
-+  /** TextInput 收到的文本 → 逐字符转发给内核，然后清空自己。 */
++  /**
++   * TextInput 收到的文本 → 只把“新增部分”逐字转发给内核。
++   * 不能依赖清空输入框（ArkUI 上不可靠，会累积成 "ee" 这种重复）。
++   */
 +  private handleTypedText(value: string): void {
-+    if (this.typingGuard || this.onNewTab) {
++    if (this.onNewTab) {
 +      return;
 +    }
++    const previous: string = this.lastCatcherValue;
++    this.lastCatcherValue = value;
 +    if (value.length === 0) {
 +      return;
 +    }
-+    for (let i = 0; i < value.length; i++) {
-+      const ch: string = value.charAt(i);
++    if (value.length <= previous.length) {
++      // 变短：退格由 onKeyEvent 的 Backspace 处理
++      return;
++    }
++    const added: string = value.startsWith(previous) ?
++      value.substring(previous.length) : value.substring(previous.length);
++    for (let i = 0; i < added.length; i++) {
++      const ch: string = added.charAt(i);
 +      this.safe('insertText', () => { servoshell.insertText(ch); });
 +    }
-+    this.typingGuard = true;
-+    this.keyCatcher = '';
-+    this.typingGuard = false;
++    // 缓冲变长后主动回收，避免无限增长
++    if (value.length > 32) {
++      this.keyCatcher = '';
++      this.lastCatcherValue = '';
++    }
 +  }
 +
 +  private originOf(u: string): string {
@@ -3893,8 +3906,25 @@ index 5086a5c7e..55c37e245 100644
 +        })
 +    )
 +  }
-+
-+  @Builder
+ 
+   @Builder
+-  tabBuilder(id: number, index: number) {
+-    Row() {
+-      // TODO: Hook-up title here.
+-      Text(String(index))
+-        .padding('10pt')
+-      Button('X')
+-        .backgroundColor('#00000000')
+-        .visibility(this.tablist.length > 1 && index != 0 ? Visibility.Visible : Visibility.Hidden)
+-        .fontColor(Color.Black)
+-        .fontWeight(FontWeight.Bolder)
+-        .onClick((event) => {
+-          this.currentId = this.tablist[0];
+-          servoshell.deleteWebview(index, this.tablist);
+-          this.tablist.splice(index, 1);
+-          // TODO: Instead of defaulting to 0, remember the previously focused Webview.
+-          servoshell.focusWebview(0, this.tablist)
+-        })
 +  tabStrip() {
 +    Row({ space: 6 }) {
 +      Row() {
@@ -3938,30 +3968,24 @@ index 5086a5c7e..55c37e245 100644
 +      .height(46)
 +      .align(Alignment.Start)
 +
-+    }
+     }
+-    .width(65)
+-    .height(40)
+-    .justifyContent(FlexAlign.Center)
+-    .backgroundColor(this.currentId === id ? '#1B8381' : Color.White)
+-    .borderRadius(10)
+-    .shadow({
+-      radius: 10,
+-      color: Color.Gray,
+-      offsetX: 10,
+-      offsetY: 10
+-    })
 +    .width('100%')
 +    .height(52)
 +    .padding({ left: 8, right: 8 })
 +  }
- 
-   @Builder
--  tabBuilder(id: number, index: number) {
--    Row() {
--      // TODO: Hook-up title here.
--      Text(String(index))
--        .padding('10pt')
--      Button('X')
--        .backgroundColor('#00000000')
--        .visibility(this.tablist.length > 1 && index != 0 ? Visibility.Visible : Visibility.Hidden)
--        .fontColor(Color.Black)
--        .fontWeight(FontWeight.Bolder)
--        .onClick((event) => {
--          this.currentId = this.tablist[0];
--          servoshell.deleteWebview(index, this.tablist);
--          this.tablist.splice(index, 1);
--          // TODO: Instead of defaulting to 0, remember the previously focused Webview.
--          servoshell.focusWebview(0, this.tablist)
--        })
++
++  @Builder
 +  menuItems() {
 +    Column({ space: 1 }) {
 +      Row({ space: 12 }) {
@@ -4031,18 +4055,7 @@ index 5086a5c7e..55c37e245 100644
 +      .onClick(() => {
 +        this.runMenuAction(5);
 +      })
-     }
--    .width(65)
--    .height(40)
--    .justifyContent(FlexAlign.Center)
--    .backgroundColor(this.currentId === id ? '#1B8381' : Color.White)
--    .borderRadius(10)
--    .shadow({
--      radius: 10,
--      color: Color.Gray,
--      offsetX: 10,
--      offsetY: 10
--    })
++    }
 +    .width('100%')
 +  }
 +
@@ -4426,16 +4439,16 @@ index 5086a5c7e..55c37e245 100644
 +    .stateStyles({
 +      pressed: { .scale({ x: 0.95, y: 0.95 }) },
 +      normal: { .scale({ x: 1, y: 1 }) }
-     })
--    const promptAction = this.getUIContext().getPromptAction();
--    servoshell.registerPromptToastCallback((msg: string) => {
++    })
 +    .animation({ curve: bounce(), duration: 220 })
 +    .hoverEffect(HoverEffect.Highlight)
 +    .onClick(() => {
 +      this.themeMode = kind;
 +      this.applyThemeMode();
 +      this.persistSettings();
-+    })
+     })
+-    const promptAction = this.getUIContext().getPromptAction();
+-    servoshell.registerPromptToastCallback((msg: string) => {
 +  }
 +
 +  @Builder
@@ -5505,10 +5518,8 @@ index 5086a5c7e..55c37e245 100644
 +        } else {
 +          this.extensionsBody()
 +        }
-       }
--      .flexGrow(1)
-       .width('100%')
--      .backgroundColor('#e1e1e1')
++      }
++      .width('100%')
 +      .height('100%')
 +      .backgroundColor(this.panelTint())
 +      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
@@ -5547,8 +5558,7 @@ index 5086a5c7e..55c37e245 100644
 +              .height('100%')
 +              .visibility(this.activeId === tab.id && !this.onNewTab ?
 +                Visibility.Visible : Visibility.Hidden)
-+              .focusable(true)
-+              .focusOnTouch(true)
++              .focusable(false)
 +              .onHover((isHover: boolean) => {
 +                if (isHover) {
 +                  this.focusKeyCatcher();
@@ -5589,8 +5599,10 @@ index 5086a5c7e..55c37e245 100644
 +        }
 +        .flexGrow(1)
 +        .width('100%')
-+      }
-+      .width('100%')
+       }
+-      .flexGrow(1)
+       .width('100%')
+-      .backgroundColor('#e1e1e1')
 +      .height('100%')
 +
 +      if (this.view === 'settings') {
@@ -5625,17 +5637,6 @@ index 5086a5c7e..55c37e245 100644
      .width('100%')
 +    .height('100%')
 +    .backgroundColor(this.bg())
-+    .onKeyEvent((event: KeyEvent) => {
-+      // 网页内输入框的兜底：内核键盘事件不可靠时，由 ArkUI 转发字符
-+      if (event.type !== KeyType.Down || this.onNewTab || this.omniboxFocused) {
-+        return;
-+      }
-+      const code: number = event.unicode !== undefined ? event.unicode : 0;
-+      if (code >= 32 && code !== 127) {
-+        const text: string = String.fromCharCode(code);
-+        this.safe('insertText', () => { servoshell.insertText(text); });
-+      }
-+    })
    }
  }
 diff --git a/support/openharmony/entry/src/main/module.json5 b/support/openharmony/entry/src/main/module.json5
