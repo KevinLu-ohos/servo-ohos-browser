@@ -23,6 +23,11 @@ jobs:
           key: servo-ohos-${{ hashFiles('patches/*.patch') }}
           restore-keys: servo-ohos-
 
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal
