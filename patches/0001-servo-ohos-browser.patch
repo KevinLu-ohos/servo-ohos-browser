@@ -87,7 +87,7 @@ index bdb007d72..a7ba6fef7 100644
  hilog = { workspace = true }
  # force inprocess until we add multi-process support for ohos
 diff --git a/ports/servoshell/egl/app.rs b/ports/servoshell/egl/app.rs
-index 3714bb40e..f9af99a0f 100644
+index 3714bb40e..3f49ca7a5 100644
 --- a/ports/servoshell/egl/app.rs
 +++ b/ports/servoshell/egl/app.rs
 @@ -10,7 +10,7 @@ use keyboard_types::{CompositionEvent, CompositionState, Key, KeyState, NamedKey
@@ -124,7 +124,7 @@ index 3714bb40e..f9af99a0f 100644
      /// Go back in history.
      pub fn go_back(&self) {
          self.window()
-@@ -624,6 +642,29 @@ impl App {
+@@ -624,6 +642,35 @@ impl App {
          }
      }
  
@@ -140,6 +140,12 @@ index 3714bb40e..f9af99a0f 100644
 +        let Some(webview) = self.active_or_newest_webview() else {
 +            return;
 +        };
++        // servo 的映射是 Start→开始组合、Update→插入组合文本、End→提交，
++        // 缺少 Start 时 EndComposition 没有可提交的组合状态，上屏会时好时坏。
++        webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(CompositionEvent {
++            state: CompositionState::Start,
++            data: String::new(),
++        })));
 +        webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(CompositionEvent {
 +            state: CompositionState::Update,
 +            data: text.clone(),
@@ -165,7 +171,7 @@ index 29fd9e238..13a232e46 100644
 -mod ohos;
 +pub(crate) mod ohos;
 diff --git a/ports/servoshell/egl/ohos/mod.rs b/ports/servoshell/egl/ohos/mod.rs
-index 88d20684e..c4e432745 100644
+index 88d20684e..8f5fd3e33 100644
 --- a/ports/servoshell/egl/ohos/mod.rs
 +++ b/ports/servoshell/egl/ohos/mod.rs
 @@ -64,7 +64,8 @@ use std::ptr::NonNull;
@@ -414,7 +420,7 @@ index 88d20684e..c4e432745 100644
              Self::InsertText(arg0) => f.debug_tuple("InsertText").field(arg0).finish(),
              Self::ImeDeleteForward(arg0) => f.debug_tuple("ImeDeleteForward").field(arg0).finish(),
              Self::ImeDeleteBackward(arg0) => {
-@@ -451,6 +592,53 @@ impl ServoAction {
+@@ -451,6 +592,57 @@ impl ServoAction {
          }
      }
  
@@ -453,7 +459,11 @@ index 88d20684e..c4e432745 100644
 +    fn dispatch_mouse_event(servo: &App, action: u32, button: u32, x: f32, y: f32) {
 +        match action {
 +            // OH_NATIVEXCOMPONENT_MOUSE_PRESS
-+            1 => servo.mouse_down(x, y, Self::mouse_button(button)),
++            // 先补一次 move：很多站点依赖 mousemove 建立 hover 状态，否则点击点不中输入框
++            1 => {
++                servo.mouse_move(x, y);
++                servo.mouse_down(x, y, Self::mouse_button(button));
++            },
 +            // OH_NATIVEXCOMPONENT_MOUSE_RELEASE
 +            2 => servo.mouse_up(x, y, Self::mouse_button(button)),
 +            // OH_NATIVEXCOMPONENT_MOUSE_MOVE - also drives CSS `:hover` and the cursor.
@@ -468,7 +478,7 @@ index 88d20684e..c4e432745 100644
      // todo: consider making this take `self`, so we don't need to needlessly clone.
      fn do_action(&self, servo: &Rc<App>) {
          use ServoAction::*;
-@@ -464,6 +652,7 @@ impl ServoAction {
+@@ -464,6 +656,7 @@ impl ServoAction {
              LoadUrl(url) => servo.load_uri(url.as_str()),
              GoBack => servo.go_back(),
              GoForward => servo.go_forward(),
@@ -476,7 +486,7 @@ index 88d20684e..c4e432745 100644
              TouchEvent {
                  kind,
                  x,
-@@ -471,7 +660,43 @@ impl ServoAction {
+@@ -471,7 +664,43 @@ impl ServoAction {
                  pointer_id,
              } => Self::dispatch_touch_event(servo, *kind, *x, *y, *pointer_id),
              KeyEvent(k) => servo.key_event(k.clone()),
@@ -521,7 +531,7 @@ index 88d20684e..c4e432745 100644
              ImeDeleteForward(len) => {
                  for _ in 0..*len {
                      servo.key_down(Key::Named(NamedKey::Delete));
-@@ -506,7 +731,7 @@ impl ServoAction {
+@@ -506,7 +735,7 @@ impl ServoAction {
                      servo.state.set_window_has_focus(window.clone(), true);
                      if let Some(webview) = window.active_webview() {
                          if let Some(url) = webview.url() {
@@ -530,7 +540,7 @@ index 88d20684e..c4e432745 100644
                                  f.call(url.to_string(), ThreadsafeFunctionCallMode::Blocking)
                              });
                          }
-@@ -593,24 +818,29 @@ unsafe extern "C" fn on_vsync_cb(
+@@ -593,24 +822,29 @@ unsafe extern "C" fn on_vsync_cb(
      }
  }
  
@@ -568,7 +578,7 @@ index 88d20684e..c4e432745 100644
      info!("Sender disconnected - Terminating main surface thread");
  }
  
-@@ -745,6 +975,15 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
+@@ -745,6 +979,15 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
              TouchEventType::Unknown
          },
      };
@@ -584,7 +594,7 @@ index 88d20684e..c4e432745 100644
      if let Err(e) = call(ServoAction::TouchEvent {
          kind,
          x: touch_event.x,
-@@ -798,6 +1037,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+@@ -798,6 +1041,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
          scroll_lock,
      };
  
@@ -617,7 +627,7 @@ index 88d20684e..c4e432745 100644
      let converted = KEY_EVENT_CONVERTER
          .lock()
          .unwrap()
-@@ -811,8 +1076,285 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+@@ -811,8 +1080,285 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
      }
  }
  
@@ -905,7 +915,7 @@ index 88d20684e..c4e432745 100644
      builder.set_domain(hilog::LogDomain::new(0xE0C3));
      let filters = [
          "fonts",
-@@ -938,6 +1480,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
+@@ -938,6 +1484,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
      } else {
          debug!("Registered key event callbacks successfully");
      }
@@ -942,7 +952,7 @@ index 88d20684e..c4e432745 100644
      Ok(())
  }
  
-@@ -971,17 +1543,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
+@@ -971,17 +1547,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
  #[napi(js_name = "loadURL")]
  pub fn load_url(url: String) {
      debug!("load url");
@@ -1123,7 +1133,7 @@ index 88d20684e..c4e432745 100644
  }
  
  #[napi(js_name = "registerURLcallback")]
-@@ -992,20 +1724,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
+@@ -992,20 +1728,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
          .max_queue_size::<UPDATE_URL_QUEUE_SIZE>()
          .build()?;
  
@@ -1148,7 +1158,7 @@ index 88d20684e..c4e432745 100644
  }
  
  #[napi]
-@@ -1014,16 +1742,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
+@@ -1014,16 +1746,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
      let tsfn_builder = callback.build_threadsafe_function();
      let function = tsfn_builder.max_queue_size::<PROMPT_QUEUE_SIZE>().build()?;
  
@@ -1179,7 +1189,7 @@ index 88d20684e..c4e432745 100644
      });
      Ok(())
  }
-@@ -1031,12 +1769,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
+@@ -1031,12 +1773,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
  #[napi]
  fn focus_webview(index: u32, arkts_ids: Vec<u32>) {
      debug!("Focusing webview {index} from napi");
@@ -1198,7 +1208,7 @@ index 88d20684e..c4e432745 100644
  }
  
  #[napi]
-@@ -1193,7 +1935,7 @@ impl HostTrait for HostCallbacks {
+@@ -1193,7 +1939,7 @@ impl HostTrait for HostCallbacks {
              }
          }
  
@@ -1207,7 +1217,7 @@ index 88d20684e..c4e432745 100644
              Some(prompt_fn) => {
                  let status = prompt_fn.call(message, ThreadsafeFunctionCallMode::NonBlocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1221,15 +1963,41 @@ impl HostTrait for HostCallbacks {
+@@ -1221,15 +1967,41 @@ impl HostTrait for HostCallbacks {
                  load_status
              ));
          }
@@ -1251,7 +1261,7 @@ index 88d20684e..c4e432745 100644
              Some(update_url_fn) => {
                  let status = update_url_fn.call(url, ThreadsafeFunctionCallMode::Blocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1240,10 +2008,15 @@ impl HostTrait for HostCallbacks {
+@@ -1240,10 +2012,15 @@ impl HostTrait for HostCallbacks {
          }
      }
  
@@ -1269,7 +1279,7 @@ index 88d20684e..c4e432745 100644
              terminate_fn.call((), ThreadsafeFunctionCallMode::Blocking);
          } else {
              error!("Could not shut down despite servo shutting down");
-@@ -1256,24 +2029,35 @@ impl HostTrait for HostCallbacks {
+@@ -1256,24 +2033,35 @@ impl HostTrait for HostCallbacks {
      /// and shows the soft keyboard with default settings.
      /// When the keyboard cannot be shown (because the application is not in focus)
      /// we just continue and try next time.
@@ -1377,7 +1387,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..a6adf62de 100644
+index 7dbcbce68..c04297506 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1389,8 +1399,8 @@ index 7dbcbce68..a6adf62de 100644
 -    "versionName": "1.0.0",
 +    "bundleName": "com.kevin.servoohos.browser",
 +    "vendor": "servo",
-+    "versionCode": 10000005,
-+    "versionName": "0.10.5",
++    "versionCode": 10000006,
++    "versionName": "0.10.6",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1736,7 +1746,7 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..872de3c6f 100644
+index 5086a5c7e..bfe7a43cb 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
 @@ -1,154 +1,3754 @@
@@ -1763,7 +1773,7 @@ index 5086a5c7e..872de3c6f 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.5';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.6';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
