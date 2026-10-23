@@ -1,7 +1,7 @@
 # Servo Browser for HarmonyOS PC
 
 基于 [Servo](https://github.com/servo/servo) 内核的鸿蒙电脑（HarmonyOS PC / 2in1）浏览器。
-浏览器外壳用 ArkUI 重写，内核跑在 Rust + OpenHarmony 端口上，输出可直接安装的 `.hap`。
+浏览器外壳用 ArkUI 重写，内核运行在 Rust + OpenHarmony 端口上。
 
 > 状态：自用 / 内测级。已能在鸿蒙 PC 上日常浏览，但**不适合作为面向公众的产品**（原因见「已知限制」）。
 
