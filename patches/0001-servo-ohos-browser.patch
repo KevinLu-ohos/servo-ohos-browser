@@ -171,7 +171,7 @@ index 29fd9e238..13a232e46 100644
 -mod ohos;
 +pub(crate) mod ohos;
 diff --git a/ports/servoshell/egl/ohos/mod.rs b/ports/servoshell/egl/ohos/mod.rs
-index 88d20684e..50c48fb6b 100644
+index 88d20684e..8b6afb623 100644
 --- a/ports/servoshell/egl/ohos/mod.rs
 +++ b/ports/servoshell/egl/ohos/mod.rs
 @@ -64,7 +64,8 @@ use std::ptr::NonNull;
@@ -595,7 +595,7 @@ index 88d20684e..50c48fb6b 100644
      info!("Sender disconnected - Terminating main surface thread");
  }
  
-@@ -745,10 +996,20 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
+@@ -745,6 +996,15 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
              TouchEventType::Unknown
          },
      };
@@ -608,17 +608,10 @@ index 88d20684e..50c48fb6b 100644
 +        debug!("skip duplicated touch press (mouse already delivered)");
 +        return;
 +    }
-+    let scale = device_scale();
      if let Err(e) = call(ServoAction::TouchEvent {
          kind,
--        x: touch_event.x,
--        y: touch_event.y,
-+        x: touch_event.x * scale,
-+        y: touch_event.y * scale,
-         pointer_id: touch_event.id,
-     }) {
-         error!("Failed to dispatch call for touch Event {kind:?}: {e:?}");
-@@ -798,6 +1059,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+         x: touch_event.x,
+@@ -798,6 +1058,32 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
          scroll_lock,
      };
  
@@ -651,7 +644,7 @@ index 88d20684e..50c48fb6b 100644
      let converted = KEY_EVENT_CONVERTER
          .lock()
          .unwrap()
-@@ -811,8 +1098,288 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
+@@ -811,8 +1097,287 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut
      }
  }
  
@@ -900,9 +893,8 @@ index 88d20684e..50c48fb6b 100644
 +        debug!("skip duplicated mouse press (touch already delivered)");
 +        return;
 +    }
-+    let scale = device_scale();
-+    let point_x = mouse_event.x * scale;
-+    let point_y = mouse_event.y * scale;
++    let point_x = mouse_event.x;
++    let point_y = mouse_event.y;
 +    *LAST_POINTER.lock().unwrap() = (point_x, point_y);
 +    if let Err(e) = call(ServoAction::MouseEvent {
 +        action: mouse_event.action.0,
@@ -942,7 +934,7 @@ index 88d20684e..50c48fb6b 100644
      builder.set_domain(hilog::LogDomain::new(0xE0C3));
      let filters = [
          "fonts",
-@@ -938,6 +1505,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
+@@ -938,6 +1503,36 @@ fn register_xcomponent_callbacks(env: &Env, xcomponent: &Object) -> napi_ohos::R
      } else {
          debug!("Registered key event callbacks successfully");
      }
@@ -979,7 +971,7 @@ index 88d20684e..50c48fb6b 100644
      Ok(())
  }
  
-@@ -971,17 +1568,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
+@@ -971,17 +1566,177 @@ fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
  #[napi(js_name = "loadURL")]
  pub fn load_url(url: String) {
      debug!("load url");
@@ -1160,7 +1152,7 @@ index 88d20684e..50c48fb6b 100644
  }
  
  #[napi(js_name = "registerURLcallback")]
-@@ -992,20 +1749,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
+@@ -992,20 +1747,16 @@ pub fn register_url_callback(callback: Function<String, ()>) -> napi_ohos::Resul
          .max_queue_size::<UPDATE_URL_QUEUE_SIZE>()
          .build()?;
  
@@ -1185,7 +1177,7 @@ index 88d20684e..50c48fb6b 100644
  }
  
  #[napi]
-@@ -1014,16 +1767,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
+@@ -1014,16 +1765,26 @@ pub fn register_prompt_toast_callback(callback: Function<String, ()>) -> napi_oh
      let tsfn_builder = callback.build_threadsafe_function();
      let function = tsfn_builder.max_queue_size::<PROMPT_QUEUE_SIZE>().build()?;
  
@@ -1216,7 +1208,7 @@ index 88d20684e..50c48fb6b 100644
      });
      Ok(())
  }
-@@ -1031,12 +1794,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
+@@ -1031,12 +1792,16 @@ pub fn init_servo(init_opts: InitOpts) -> napi_ohos::Result<()> {
  #[napi]
  fn focus_webview(index: u32, arkts_ids: Vec<u32>) {
      debug!("Focusing webview {index} from napi");
@@ -1235,7 +1227,7 @@ index 88d20684e..50c48fb6b 100644
  }
  
  #[napi]
-@@ -1193,7 +1960,7 @@ impl HostTrait for HostCallbacks {
+@@ -1193,7 +1958,7 @@ impl HostTrait for HostCallbacks {
              }
          }
  
@@ -1244,7 +1236,7 @@ index 88d20684e..50c48fb6b 100644
              Some(prompt_fn) => {
                  let status = prompt_fn.call(message, ThreadsafeFunctionCallMode::NonBlocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1221,15 +1988,41 @@ impl HostTrait for HostCallbacks {
+@@ -1221,15 +1986,41 @@ impl HostTrait for HostCallbacks {
                  load_status
              ));
          }
@@ -1288,7 +1280,7 @@ index 88d20684e..50c48fb6b 100644
              Some(update_url_fn) => {
                  let status = update_url_fn.call(url, ThreadsafeFunctionCallMode::Blocking);
                  if status != napi_ohos::Status::Ok {
-@@ -1240,10 +2033,15 @@ impl HostTrait for HostCallbacks {
+@@ -1240,10 +2031,15 @@ impl HostTrait for HostCallbacks {
          }
      }
  
@@ -1306,7 +1298,7 @@ index 88d20684e..50c48fb6b 100644
              terminate_fn.call((), ThreadsafeFunctionCallMode::Blocking);
          } else {
              error!("Could not shut down despite servo shutting down");
-@@ -1256,24 +2054,35 @@ impl HostTrait for HostCallbacks {
+@@ -1256,24 +2052,35 @@ impl HostTrait for HostCallbacks {
      /// and shows the soft keyboard with default settings.
      /// When the keyboard cannot be shown (because the application is not in focus)
      /// we just continue and try next time.
@@ -1414,7 +1406,7 @@ index 0b266879c..7a5c1d186 100644
              .notify_favicon_changed(webview);
      }
 diff --git a/support/openharmony/AppScope/app.json5 b/support/openharmony/AppScope/app.json5
-index 7dbcbce68..87206ea15 100644
+index 7dbcbce68..cd258fbb5 100644
 --- a/support/openharmony/AppScope/app.json5
 +++ b/support/openharmony/AppScope/app.json5
 @@ -1,9 +1,9 @@
@@ -1426,8 +1418,8 @@ index 7dbcbce68..87206ea15 100644
 -    "versionName": "1.0.0",
 +    "bundleName": "com.kevin.servoohos.browser",
 +    "vendor": "servo",
-+    "versionCode": 10000007,
-+    "versionName": "0.10.7",
++    "versionCode": 10000008,
++    "versionName": "0.10.8",
      "icon": "$media:servo_64",
      "label": "$string:app_name"
    }
@@ -1773,10 +1765,10 @@ index 1933a517a..c9923a736 100644
 -};
 +}
 diff --git a/support/openharmony/entry/src/main/ets/pages/Index.ets b/support/openharmony/entry/src/main/ets/pages/Index.ets
-index 5086a5c7e..2c64e0e33 100644
+index 5086a5c7e..f008453ec 100644
 --- a/support/openharmony/entry/src/main/ets/pages/Index.ets
 +++ b/support/openharmony/entry/src/main/ets/pages/Index.ets
-@@ -1,154 +1,3754 @@
+@@ -1,154 +1,3762 @@
  import { BusinessError } from '@ohos.base';
 +import hilog from '@ohos.hilog';
 +import curves from '@ohos.curves';
@@ -1790,6 +1782,7 @@ index 5086a5c7e..2c64e0e33 100644
 +import environment from '@ohos.file.environment';
 +import util from '@ohos.util';
 +import image from '@ohos.multimedia.image';
++import display from '@ohos.display';
 +import http from '@ohos.net.http';
 +import fileShare from '@ohos.fileshare';
 +import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
@@ -1800,7 +1793,7 @@ index 5086a5c7e..2c64e0e33 100644
 +import { Store, UserScript } from '../common/Store';
 +
 +const KERNEL_VERSION: string = '0.7.0';   // Servo 内核版本：固定，不随构建变化
-+const APP_VERSION: string = '0.10.7';      // 浏览器自身版本：每次构建递增
++const APP_VERSION: string = '0.10.8';      // 浏览器自身版本：每次构建递增
 +const DOMAIN: number = 0xE0C3;
 +const ACCENT: string = '#1A73E8';
 +const DANGER: string = '#D93025';
@@ -2035,6 +2028,7 @@ index 5086a5c7e..2c64e0e33 100644
 +  @State homePageInput: string = '';
 +  @State downloadDirUri: string = '';
 +  @State downloadDirPath: string = '';
++  @State deviceDpr: number = 0;
 +  @State materialOk: boolean = false;
 +
 +  // settings
@@ -3533,6 +3527,11 @@ index 5086a5c7e..2c64e0e33 100644
 +      Store.init(context);
 +    } catch (error) {
 +      hilog.error(DOMAIN, 'ServoShell', 'store init failed');
++    }
++    try {
++      this.deviceDpr = display.getDefaultDisplaySync().densityPixels;
++    } catch (error) {
++      this.deviceDpr = 0;
 +    }
 +    window.getLastWindow(context).then((w: window.Window) => {
 +      this.win = w;
@@ -5180,6 +5179,7 @@ index 5086a5c7e..2c64e0e33 100644
 +                this.infoLine('渲染引擎', 'WebRender')
 +                this.infoLine('脚本引擎', 'SpiderMonkey')
 +                this.infoLine('运行平台', 'HarmonyOS PC（2in1）')
++                this.infoLine('屏幕缩放', this.deviceDpr.toFixed(2) + 'x')
 +                Divider().color(this.line())
 +                Row({ space: 10 }) {
 +                  Text('检查更新')
