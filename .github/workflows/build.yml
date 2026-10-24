@@ -61,6 +61,10 @@ jobs:
       - name: Build
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
+          # mach 内部会调用 `cargo ohos env`，它同样要访问 GitHub API
+          # 拉取 LLVM 工具链清单；不带 token 会 403。
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "${OHOS_SDK_NATIVE:-}" ]; then
             SDK=$(find "$HOME/Library/Caches/cargo-ohos" "$HOME/.cache/cargo-ohos" \
