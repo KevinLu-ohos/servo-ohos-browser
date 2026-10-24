@@ -23,7 +23,13 @@ git checkout -q "$SERVO_COMMIT"
 
 echo "==> applying patch"
 git checkout -q -- .
-git apply --3way "$PATCH"
+# 浅克隆（--filter=blob:none）里没有历史 blob，`--3way` 会报
+# "repository lacks the necessary blob"；补丁是针对固定 commit 生成的，
+# 先直接 apply，失败再退回三方合并。
+if ! git apply "$PATCH"; then
+  echo "    direct apply failed, retrying with --3way"
+  git apply --3way "$PATCH"
+fi
 
 echo "==> bootstrap (cargo-ohos / ohos-test-runner)"
 ./mach bootstrap --ohos --skip-platform --skip-nextest --yes
