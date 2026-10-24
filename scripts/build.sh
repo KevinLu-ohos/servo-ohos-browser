@@ -10,8 +10,37 @@ JOBS="${JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc) )}"
 [ -f "$ROOT/env.sh" ] && source "$ROOT/env.sh"
 
 if [ ! -d "$SERVO_DIR/.git" ]; then
-  echo "==> cloning servo (shallow)"
-  git clone --filter=blob:none https://github.com/servo/servo.git "$SERVO_DIR"
+  if [ ! -d "$SERVO_DIR" ]; then
+    echo "==> cloning servo (shallow)"
+    git clone --filter=blob:none https://github.com/servo/servo.git "$SERVO_DIR"
+  else
+    # 目录存在但没有 .git：这是 CI 缓存恢复出来的残留。actions/cache 只缓存了
+    # servo/target（见 .github/workflows/build.yml 的 Cache 步骤），所以恢复后
+    # $SERVO_DIR 里只有 target/、没有 .git。这种状态下不能直接
+    # `git clone ... "$SERVO_DIR"`，git 会以
+    # "destination path already exists and is not an empty directory" 失败。
+    # 因此先克隆到临时目录，把残留里的 target/ 搬进新克隆（保住 cargo 缓存的
+    # 意义），再删掉残留目录，最后把临时克隆改名成 $SERVO_DIR。
+    clone_tmp="$SERVO_DIR.clone.$$"
+    echo "==> $SERVO_DIR has no .git (cache residue); cloning into $clone_tmp"
+    (
+      # 无论成功还是失败都要清掉临时目录：subshell 退出时 trap 必定执行，
+      # 已经 mv 走的路径则因 [ -d ] 判断为假而不动。
+      trap 'if [ -d "$clone_tmp" ]; then rm -rf -- "$clone_tmp"; fi' EXIT
+      git clone --filter=blob:none https://github.com/servo/servo.git "$clone_tmp"
+
+      if [ -d "$SERVO_DIR/target" ]; then
+        echo "==> keeping cached target/ from the residue"
+        mv "$SERVO_DIR/target" "$clone_tmp/target"
+      fi
+
+      # 只删除“确认没有 .git”的残留目录，真正的仓库不会被碰。
+      if [ -d "$SERVO_DIR" ] && [ ! -d "$SERVO_DIR/.git" ]; then
+        rm -rf -- "$SERVO_DIR"
+      fi
+      mv "$clone_tmp" "$SERVO_DIR"
+    )
+  fi
 fi
 
 cd "$SERVO_DIR"
