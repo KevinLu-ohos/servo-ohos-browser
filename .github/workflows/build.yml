@@ -68,13 +68,15 @@ jobs:
         run: |
           if [ -z "${OHOS_SDK_NATIVE:-}" ]; then
             SDK=$(find "$HOME/Library/Caches/cargo-ohos" "$HOME/.cache/cargo-ohos" \
-                    -maxdepth 8 -type d -path "*/native" 2>/dev/null | head -1)
+                    -maxdepth 9 -type d -path "*ohos-sdk*/native" 2>/dev/null | head -1)
             echo "detected SDK: ${SDK:-<none>}"
             if [ -z "$SDK" ]; then
               echo "::error::OpenHarmony native SDK not found; 'cargo ohos init sdk' did not produce it"
               exit 1
             fi
             echo "OHOS_SDK_NATIVE=$SDK" >> "$GITHUB_ENV"
-            echo "DEVECO_SDK_HOME=$(dirname "$SDK")" >> "$GITHUB_ENV"
+            # hvigor 打包要的是 SDK 根目录：.../ohos-sdk/<ver>/<host>
+            # （native 位于 .../<ver>/<host>/<api>/native）
+            echo "OHOS_BASE_SDK_HOME=$(cd "$SDK/../.." && pwd)" >> "$GITHUB_ENV"
           fi
           ./scripts/build.sh
