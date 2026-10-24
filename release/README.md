@@ -5,10 +5,10 @@ HAP 体积约 126 MB，超过 GitHub 单文件 100 MB 限制，**不要提交进
 ## GitHub
 
 ```bash
-gh release create v0.9.17 \
-  release/servoshell-ohos-2in1-0.9.17-unsigned.hap \
-  --title "v0.9.17" \
-  --notes-file release/notes-0.9.17.md
+gh release create v0.10.62 \
+  release/servoshell-ohos-2in1-0.10.62-unsigned.hap \
+  --title "v0.10.62" \
+  --notes-file release/notes-0.10.62.md
 ```
 
 ## GitCode

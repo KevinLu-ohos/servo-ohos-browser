@@ -5,7 +5,7 @@
 │ ArkUI 外壳（ArkTS）                                             │
 │  ├─ 标签条 / 导航栏 / Omnibox / 菜单                             │
 │  ├─ 新标签页（原生 ArkUI 视图，非网页）                           │
-│  ├─ 设置 / 下载 / 扩展 面板                                      │
+│  ├─ 设置 / 下载 / 书签 / 历史 / 扩展 面板                        │
 │  └─ XComponent(SURFACE) × 标签数                                │
 │            │ NAPI（napi-ohos）                                  │
 │ Rust cdylib：servo 的 OpenHarmony 端口                           │
@@ -56,3 +56,13 @@ OHOS 的 XComponent 只给 keycode，PC 上没有软键盘兜底，因此：
 - Rust 侧把可打印键码转成 `Key::Character` 事件；
 - ArkTS 侧再加一层 `onKeyEvent → insertText()` 兜底；
 - 新标签页直接改用原生 ArkUI 输入框，彻底绕开内核输入。
+
+### 6. 书签与历史（`common/Library.ets`）
+
+书签与历史都落在同一个 RDB 里（`servo_library.db`，`@ohos.data.relationalStore`），两张表 `bookmarks` / `history`，不依赖内核。
+
+- **缓存优先**：UI 同步读内存缓存，状态立即返回；写库异步进行，失败只记日志、不回滚缓存——重启后以库为准。
+- **串行写**：所有写操作挂在同一条 Promise 链上，先插入拿到 rowId，后续按 rowId 的更新/删除才不会落空。
+- **同 url 合并**：`VISIT_DEDUP_MS`（60s）内重复访问同一个 url 只更新时间戳，刷新一次不会多一行。
+- **容量控制**：库内历史上限 5000 行（超出裁掉最旧的），读取窗口只有最近 300 条；裁剪每 50 次插入才查一次，避免每次访问都跑 `DELETE`。
+- **启动时机与降级**：`Library.init()` 在 `EntryAbility` 启动时调用（幂等，内部异步打开并预热缓存）。打开失败（沙箱权限异常等）不影响浏览，只是书签/历史不落盘。

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVO_COMMIT="78d4d459569a810ed5c49612eab992f1bd476f69"
+SERVO_COMMIT="981beee7c830671a7d6f7612f16ffdeaf1a900de"
 SERVO_DIR="${SERVO_DIR:-$ROOT/servo}"
 PATCH="$ROOT/patches/0001-servo-ohos-browser.patch"
 JOBS="${JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc) )}"
