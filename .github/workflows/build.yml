@@ -75,8 +75,17 @@ jobs:
               exit 1
             fi
             echo "OHOS_SDK_NATIVE=$SDK" >> "$GITHUB_ENV"
-            # hvigor 打包要的是 SDK 根目录：.../ohos-sdk/<ver>/<host>
-            # （native 位于 .../<ver>/<host>/<api>/native）
+            # mach 要的是 SDK 根目录：.../ohos-sdk/<ver>/<host>
             echo "OHOS_BASE_SDK_HOME=$(cd "$SDK/../.." && pwd)" >> "$GITHUB_ENV"
+
+            # hvigor 的 DEVECO_SDK_HOME 必须是 DevEco 的布局：
+            #   <DEVECO_SDK_HOME>/default/openharmony/{native,ets,toolchains,...}
+            # cargo-ohos 下载的 SDK 是 <base>/<api>/{native,ets,...}，
+            # 用符号链接拼出同样的结构，避免 "Invalid value of DEVECO_SDK_HOME"。
+            API_DIR=$(cd "$SDK/.." && pwd)
+            COMPAT="$RUNNER_TEMP/ohos-sdk-compat"
+            mkdir -p "$COMPAT/default"
+            ln -sfn "$API_DIR" "$COMPAT/default/openharmony"
+            echo "DEVECO_SDK_HOME=$COMPAT" >> "$GITHUB_ENV"
           fi
           ./scripts/build.sh
