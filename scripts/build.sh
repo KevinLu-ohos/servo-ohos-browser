@@ -35,7 +35,22 @@ echo "==> bootstrap (cargo-ohos / ohos-test-runner)"
 ./mach bootstrap --ohos --skip-platform --skip-nextest --yes
 
 echo "==> building (release, -j $JOBS)"
+set +e
 ./mach build --ohos --release --flavor=harmonyos -j "$JOBS"
+BUILD_STATUS=$?
+set -e
+if [ "$BUILD_STATUS" -ne 0 ]; then
+  # CI 上没装 DevEco，hvigor 校验 DEVECO_SDK_HOME 时必然失败（缺少 DevEco 的
+  # SDK 元数据）。只要引擎本身编出来了，就把这次构建视为“编译通过”，
+  # HAP 由本地 DevEco 环境打包。
+  if [ "${ALLOW_PACKAGE_FAILURE:-0}" = "1" ] && \
+     [ -f target/aarch64-unknown-linux-ohos/release/libservoshell.so ]; then
+    echo "::warning::HAP packaging failed (hvigor needs a DevEco SDK layout); engine built successfully"
+    echo "==> engine artifact: target/aarch64-unknown-linux-ohos/release/libservoshell.so"
+    exit 0
+  fi
+  exit "$BUILD_STATUS"
+fi
 
 echo "==> done"
 find target/openharmony -name "*.hap" -maxdepth 8 2>/dev/null || true

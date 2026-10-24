@@ -65,6 +65,9 @@ jobs:
           # 拉取 LLVM 工具链清单；不带 token 会 403。
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CI 上没有 DevEco，hvigor 打包会因 DEVECO_SDK_HOME 校验失败；
+          # 这里只要求引擎编译通过，HAP 在本地 DevEco 环境打包。
+          ALLOW_PACKAGE_FAILURE: '1'
         run: |
           if [ -z "${OHOS_SDK_NATIVE:-}" ]; then
             SDK=$(find "$HOME/Library/Caches/cargo-ohos" "$HOME/.cache/cargo-ohos" \
