@@ -17,9 +17,9 @@ git push -u origin main
 HAP 约 126 MB，超过 GitHub 单文件 100 MB 限制，不能进仓库：
 
 ```bash
-gh release create v0.10.62 \
-  ~/Documents/servoshell-ohos/servoshell-ohos-2in1-0.10.62-unsigned.hap \
-  --title "v0.10.62" --notes-file release/notes-0.10.62.md
+gh release create v0.10.72 \
+  ~/Documents/servoshell-ohos/servoshell-ohos-2in1-0.10.72-unsigned.hap \
+  --title "v0.10.72" --notes-file release/notes-0.10.72.md
 ```
 
 GitCode：仓库 → 「发行版」→ 新建发布 → 上传同一个 HAP。
